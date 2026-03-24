@@ -1,0 +1,29 @@
+{
+  "name": "store-print-agent",
+  "version": "1.0.0",
+  "description": "Polls the JewelryApp backend and prints receipts via Epson SDK in a headless browser",
+  "main": "src/index.js",
+  "bin": "src/index.js",
+  "scripts": {
+    "start": "node src/index.js",
+    "dev": "node --watch src/index.js",
+    "build:exe": "pkg . --targets node18-win-x64 --output dist/StorePrintAgent.exe",
+    "bundle:chromium": "powershell -NoProfile -Command \"if (Test-Path 'node_modules/puppeteer/.local-chromium') { New-Item -ItemType Directory -Force 'dist' | Out-Null; Copy-Item -Recurse -Force 'node_modules/puppeteer/.local-chromium' 'dist/puppeteer' }\"",
+    "build:release": "npm run build:exe && npm run bundle:chromium"
+  },
+  "pkg": {
+    "assets": [
+      "public/**/*"
+    ],
+    "outputPath": "dist"
+  },
+  "dependencies": {
+    "axios": "^1.6.8",
+    "dotenv": "^16.4.5",
+    "puppeteer": "^22.6.0",
+    "winston": "^3.13.0"
+  },
+  "devDependencies": {
+    "pkg": "^5.8.1"
+  }
+}
