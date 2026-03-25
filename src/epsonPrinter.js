@@ -49,8 +49,10 @@ async function printReceipt(payload) {
     args: [
       "--no-sandbox",
       "--disable-setuid-sandbox",
-      // Allow the page to reach the local-network printer
       "--disable-web-security",
+      // Allow pages to connect to local-network printers (Chrome 98+ Private Network Access)
+      "--disable-features=BlockInsecurePrivateNetworkRequests,PrivateNetworkAccessSendPreflights",
+      "--allow-running-insecure-content",
     ],
   });
   logger.info("Browser launched successfully");
@@ -70,6 +72,15 @@ async function printReceipt(payload) {
       width: config.puppeteer.viewportWidth,
       height: 1200,
     });
+
+    // Navigate to printer origin first so the page has an HTTP origin that
+    // Chrome's Private Network Access policy allows to connect back to the printer.
+    logger.info("Navigating to printer origin for network access");
+    try {
+      await page.goto(`http://${printerIp}:${port}/`, { waitUntil: "domcontentloaded", timeout: 5000 });
+    } catch (_) {
+      // Printer may not serve HTTP pages — that's fine, we just need the origin set
+    }
 
     logger.info("Setting page content (HTML rendering)");
     await page.setContent(htmlContent, { waitUntil: "networkidle0" });
