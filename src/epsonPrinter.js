@@ -122,7 +122,12 @@ async function printReceipt(payload) {
         const img = new Image();
         await new Promise((resolve, reject) => {
           img.onload = () => {
-            console.log("✓ [evaluate] Image loaded, dimensions:", img.naturalWidth, "x", img.naturalHeight);
+            console.log(
+              "✓ [evaluate] Image loaded, dimensions:",
+              img.naturalWidth,
+              "x",
+              img.naturalHeight,
+            );
             resolve();
           };
           img.onerror = () =>
@@ -138,21 +143,34 @@ async function printReceipt(payload) {
         ctx.fillStyle = "#ffffff";
         ctx.fillRect(0, 0, finalCanvas.width, finalCanvas.height);
         ctx.drawImage(img, 0, 0, finalCanvas.width, finalCanvas.height);
-        console.log("✓ [evaluate] Canvas ready:", finalCanvas.width, "x", finalCanvas.height);
+        console.log(
+          "✓ [evaluate] Canvas ready:",
+          finalCanvas.width,
+          "x",
+          finalCanvas.height,
+        );
 
         // ---- Connect to Epson ePOSDevice (DeviceIF, port 8008) ----
-        console.log("🔌 [evaluate] Connecting to Epson device at", ip + ":" + epsonPort);
+        console.log(
+          "🔌 [evaluate] Connecting to Epson device at",
+          ip + ":" + epsonPort,
+        );
         const dev = new window.epson.ePOSDevice();
 
         const connectResult = await new Promise((resolve) => {
-          dev.connect(ip, epsonPort, (res) => {
-            console.log("✓ [evaluate] Epson connect result:", res);
-            resolve(res);
-          }, {
-            crypto,
-            buffer,
-            eposprint: false,
-          });
+          dev.connect(
+            ip,
+            epsonPort,
+            (res) => {
+              console.log("✓ [evaluate] Epson connect result:", res);
+              resolve(res);
+            },
+            {
+              crypto,
+              buffer,
+              eposprint: false,
+            },
+          );
         });
 
         if (connectResult !== "OK" && connectResult !== "SSL_CONNECT_OK") {
@@ -214,7 +232,9 @@ async function printReceipt(payload) {
       false, // buffer
       paperWidthPx,
     );
-    logger.info("Print operation completed successfully", { saleId: payload.saleId });
+    logger.info("Print operation completed successfully", {
+      saleId: payload.saleId,
+    });
 
     logger.info("Receipt printed", { saleId: payload.saleId, printerIp });
   } catch (err) {
