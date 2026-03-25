@@ -1,4 +1,11 @@
-require("dotenv").config();
+const path = require("path");
+const dotenv = require("dotenv");
+
+const envPath = process.pkg
+  ? path.join(path.dirname(process.execPath), ".env")
+  : path.resolve(__dirname, "../.env");
+
+dotenv.config({ path: envPath });
 const { runWorker } = require("./worker");
 const logger = require("./logger");
 

@@ -39,7 +39,9 @@ async function runWorker(signal) {
 
     try {
       await markStarted(job.id);
+      logger.warning("marked job started", { jobId: job.id });
       await printReceipt(job.payload);
+      logger.warning("receipt printed", { jobId: job.id });
       await markSucceeded(job.id);
       logger.info("Print job succeeded", { jobId: job.id });
     } catch (err) {

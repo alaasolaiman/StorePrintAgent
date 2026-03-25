@@ -12,6 +12,11 @@
     "build:release": "npm run build:exe && npm run bundle:chromium"
   },
   "pkg": {
+    "scripts": [
+      "src/**/*.js",
+      "node_modules/axios/dist/**/*.cjs",
+      "node_modules/axios/lib/**/*.js"
+    ],
     "assets": [
       "public/**/*"
     ],
