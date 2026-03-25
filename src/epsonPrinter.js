@@ -77,7 +77,10 @@ async function printReceipt(payload) {
     // Chrome's Private Network Access policy allows to connect back to the printer.
     logger.info("Navigating to printer origin for network access");
     try {
-      await page.goto(`http://${printerIp}:${port}/`, { waitUntil: "domcontentloaded", timeout: 5000 });
+      await page.goto(`http://${printerIp}:${port}/`, {
+        waitUntil: "domcontentloaded",
+        timeout: 5000,
+      });
     } catch (_) {
       // Printer may not serve HTTP pages — that's fine, we just need the origin set
     }
