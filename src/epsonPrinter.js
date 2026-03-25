@@ -102,136 +102,82 @@ async function printReceipt(payload) {
       port,
       paperWidthPx,
     });
-    await page.evaluate(
-      async (base64, ip, epsonPort, crypto, buffer, targetWidth) => {
-        console.log("🖨️ [evaluate] Starting print operation");
 
-        function wait(ms) {
-          return new Promise((r) => setTimeout(r, ms));
-        }
+    // Pass all values as inlined JSON inside a string so pkg bytecode
+    // compilation does not break Puppeteer's function serialization.
+    const evalScript = `
+(async function() {
+  var base64 = ${JSON.stringify(base64Screenshot)};
+  var ip = ${JSON.stringify(printerIp)};
+  var epsonPort = String(${JSON.stringify(port)});
+  var useSsl = ${JSON.stringify(useSsl)};
+  var targetWidth = ${JSON.stringify(paperWidthPx)};
 
-        if (!window.epson?.ePOSDevice) {
-          throw new Error(
-            "Epson SDK not loaded (window.epson.ePOSDevice missing).",
-          );
-        }
-        console.log("✓ [evaluate] Epson SDK loaded, ePOSDevice available");
+  function wait(ms) {
+    return new Promise(function(r) { setTimeout(r, ms); });
+  }
 
-        // ---- Build canvas from the Puppeteer screenshot ----
-        console.log("🖼️ [evaluate] Building canvas from screenshot");
-        const img = new Image();
-        await new Promise((resolve, reject) => {
-          img.onload = () => {
-            console.log(
-              "✓ [evaluate] Image loaded, dimensions:",
-              img.naturalWidth,
-              "x",
-              img.naturalHeight,
-            );
-            resolve();
-          };
-          img.onerror = () =>
-            reject(new Error("Failed to load screenshot image."));
-          img.src = `data:image/png;base64,${base64}`;
-        });
+  if (!window.epson || !window.epson.ePOSDevice) {
+    throw new Error("Epson SDK not loaded (window.epson.ePOSDevice missing).");
+  }
+  console.log("[evaluate] Epson SDK loaded");
 
-        const ratio = targetWidth / img.naturalWidth;
-        const finalCanvas = document.createElement("canvas");
-        finalCanvas.width = targetWidth;
-        finalCanvas.height = Math.max(1, Math.round(img.naturalHeight * ratio));
-        const ctx = finalCanvas.getContext("2d");
-        ctx.fillStyle = "#ffffff";
-        ctx.fillRect(0, 0, finalCanvas.width, finalCanvas.height);
-        ctx.drawImage(img, 0, 0, finalCanvas.width, finalCanvas.height);
-        console.log(
-          "✓ [evaluate] Canvas ready:",
-          finalCanvas.width,
-          "x",
-          finalCanvas.height,
-        );
+  var img = new Image();
+  await new Promise(function(resolve, reject) {
+    img.onload = function() {
+      console.log("[evaluate] Image loaded:", img.naturalWidth, "x", img.naturalHeight);
+      resolve();
+    };
+    img.onerror = function() { reject(new Error("Failed to load screenshot image.")); };
+    img.src = "data:image/png;base64," + base64;
+  });
 
-        // ---- Connect to Epson ePOSDevice (DeviceIF, port 8008) ----
-        console.log(
-          "🔌 [evaluate] Connecting to Epson device at",
-          ip + ":" + epsonPort,
-        );
-        const dev = new window.epson.ePOSDevice();
+  var ratio = targetWidth / img.naturalWidth;
+  var finalCanvas = document.createElement("canvas");
+  finalCanvas.width = targetWidth;
+  finalCanvas.height = Math.max(1, Math.round(img.naturalHeight * ratio));
+  var ctx = finalCanvas.getContext("2d");
+  ctx.fillStyle = "#ffffff";
+  ctx.fillRect(0, 0, finalCanvas.width, finalCanvas.height);
+  ctx.drawImage(img, 0, 0, finalCanvas.width, finalCanvas.height);
+  console.log("[evaluate] Canvas ready:", finalCanvas.width, "x", finalCanvas.height);
 
-        const connectResult = await new Promise((resolve) => {
-          dev.connect(
-            ip,
-            epsonPort,
-            (res) => {
-              console.log("✓ [evaluate] Epson connect result:", res);
-              resolve(res);
-            },
-            {
-              crypto,
-              buffer,
-              eposprint: false,
-            },
-          );
-        });
+  console.log("[evaluate] Connecting to Epson at", ip + ":" + epsonPort);
+  var dev = new window.epson.ePOSDevice();
+  var connectResult = await new Promise(function(resolve) {
+    dev.connect(ip, epsonPort, function(res) {
+      console.log("[evaluate] Connect result:", res);
+      resolve(res);
+    }, { crypto: useSsl, buffer: false });
+  });
 
-        if (connectResult !== "OK" && connectResult !== "SSL_CONNECT_OK") {
-          throw new Error(
-            `Epson connect failed: ${connectResult} (ip=${ip} port=${epsonPort})`,
-          );
-        }
-        console.log("✓ [evaluate] Connected to Epson device");
+  if (connectResult !== "OK" && connectResult !== "SSL_CONNECT_OK") {
+    throw new Error("Epson connect failed: " + connectResult + " (ip=" + ip + " port=" + epsonPort + ")");
+  }
 
-        // ---- Create printer device ----
-        console.log("📋 [evaluate] Creating printer device");
-        const printer = await new Promise((resolve, reject) => {
-          dev.createDevice(
-            "local_printer",
-            dev.DEVICE_TYPE_PRINTER,
-            { crypto, buffer },
-            (p, code) => {
-              console.log("✓ [evaluate] createDevice callback:", code);
-              if (code !== "OK")
-                reject(new Error(`createDevice failed: ${code}`));
-              else resolve(p);
-            },
-          );
-        });
-        console.log("✓ [evaluate] Printer device created");
+  var printer = await new Promise(function(resolve, reject) {
+    dev.createDevice("local_printer", dev.DEVICE_TYPE_PRINTER, { crypto: useSsl, buffer: false, reconnect: true }, function(p, code) {
+      console.log("[evaluate] createDevice:", code);
+      if (code !== "OK") reject(new Error("createDevice failed: " + code));
+      else resolve(p);
+    });
+  });
+  console.log("[evaluate] Printer device created");
 
-        printer.timeout = 60000;
+  printer.timeout = 60000;
+  var ctx2d = finalCanvas.getContext("2d");
+  printer.addImage(ctx2d, 0, 0, finalCanvas.width, finalCanvas.height, printer.COLOR_1, printer.MODE_GRAY16);
+  printer.addFeedLine(2);
+  printer.addCut(printer.CUT_FEED);
+  printer.send();
+  console.log("[evaluate] Print sent");
 
-        // ---- Send image + cut ----
-        console.log("🖨️ [evaluate] Sending image to printer");
-        const ctx2d = finalCanvas.getContext("2d");
-        printer.addImage(
-          ctx2d,
-          0,
-          0,
-          finalCanvas.width,
-          finalCanvas.height,
-          printer.COLOR_1,
-          printer.MODE_GRAY16,
-        );
-        console.log("✓ [evaluate] Image added, adding feed line and cut");
-        printer.addFeedLine(2);
-        printer.addCut(printer.CUT_FEED);
-        console.log("🚀 [evaluate] Sending to printer...");
-        printer.send();
-        console.log("✓ [evaluate] Print sent to device");
-
-        // Give the printer time to receive the data before we disconnect
-        console.log("⏳ [evaluate] Waiting for printer to process...");
-        await wait(1200);
-        console.log("✓ [evaluate] Disconnecting from device");
-        dev.disconnect();
-        console.log("✅ [evaluate] Print operation completed successfully");
-      },
-      base64Screenshot,
-      printerIp,
-      port,
-      useSsl,
-      false, // buffer
-      paperWidthPx,
-    );
+  await wait(1200);
+  dev.disconnect();
+  console.log("[evaluate] Done");
+})();
+`;
+    await page.evaluate(evalScript);
     logger.info("Print operation completed successfully", {
       saleId: payload.saleId,
     });

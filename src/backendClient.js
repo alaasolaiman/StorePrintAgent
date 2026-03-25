@@ -10,6 +10,7 @@ const client = axios.create({
   httpsAgent: new https.Agent({ rejectUnauthorized: false }),
 });
 
+console.log("config.backend.baseUrl",config.backend.baseUrl)
 /**
  * Claims the next pending print job for this store/printer.
  * Returns the PrintJobDto object, or null if none available.
@@ -29,11 +30,14 @@ async function claimNextJob() {
 }
 
 async function markStarted(jobId) {
-  await client.post("PrintJobs/MarkPrintJobStarted", { printJobId: jobId });
+  console.log("marking job started 1", { jobId });
+  await client.post("PrintJobs/MarkPrintJobStarted", { jobId: jobId });
+  console.log("marking job started 2", { jobId });
 }
 
 async function markSucceeded(jobId) {
-  await client.post("PrintJobs/MarkPrintJobSucceeded", { printJobId: jobId });
+  console.log("marking job succeeded", { jobId });
+  await client.post("PrintJobs/MarkPrintJobSucceeded", { jobId: jobId });
 }
 
 async function markFailed(jobId, reason) {
