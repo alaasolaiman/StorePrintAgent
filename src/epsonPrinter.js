@@ -90,14 +90,17 @@ async function printReceipt(payload) {
     // resolve to the backend origin instead of the printer IP.
     const backendOrigin = new URL(config.backend.baseUrl).origin;
     let htmlToRender = htmlContent;
-    if (!htmlContent.includes('<base ')) {
-      htmlToRender = htmlContent.includes('<head>')
-        ? htmlContent.replace('<head>', `<head><base href="${backendOrigin}/">`)
+    if (!htmlContent.includes("<base ")) {
+      htmlToRender = htmlContent.includes("<head>")
+        ? htmlContent.replace("<head>", `<head><base href="${backendOrigin}/">`)
         : `<base href="${backendOrigin}/">${htmlContent}`;
     }
 
     logger.info("Setting page content (HTML rendering)", { backendOrigin });
-    await page.setContent(htmlToRender, { waitUntil: "networkidle0", timeout: 30000 });
+    await page.setContent(htmlToRender, {
+      waitUntil: "networkidle0",
+      timeout: 30000,
+    });
     logger.info("Page content set, HTML rendered");
 
     // Mirror the old frontend flow: it toggled the receipt into a dedicated
