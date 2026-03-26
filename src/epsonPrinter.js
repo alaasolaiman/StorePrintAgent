@@ -61,15 +61,16 @@ async function printReceipt(payload) {
     const page = await browser.newPage();
     logger.info("Page created");
 
-    // Set viewport to receipt paper width (576px for 80mm @ 203dpi).
-    // deviceScaleFactor=2 produces a crisper screenshot.
+    // Set viewport to exact paper width (576px for 80mm @ 203dpi).
+    // deviceScaleFactor=4 matches the original frontend html2canvas scale:4,
+    // capturing at 2304px and downscaling to 576px (4:1) for sharp MODE_GRAY16 dithering.
     await page.setViewport({
-      width: config.puppeteer.viewportWidth,
+      width: paperWidthPx,
       height: 1200,
-      deviceScaleFactor: 2,
+      deviceScaleFactor: 4,
     });
     logger.info("Viewport set", {
-      width: config.puppeteer.viewportWidth,
+      width: paperWidthPx,
       height: 1200,
     });
 
@@ -85,15 +86,230 @@ async function printReceipt(payload) {
       // Printer may not serve HTTP pages — that's fine, we just need the origin set
     }
 
-    logger.info("Setting page content (HTML rendering)");
-    await page.setContent(htmlContent, { waitUntil: "networkidle0" });
+    // Inject <base> tag so relative image/asset URLs in the backend HTML
+    // resolve to the backend origin instead of the printer IP.
+    const backendOrigin = new URL(config.backend.baseUrl).origin;
+    let htmlToRender = htmlContent;
+    if (!htmlContent.includes('<base ')) {
+      htmlToRender = htmlContent.includes('<head>')
+        ? htmlContent.replace('<head>', `<head><base href="${backendOrigin}/">`)
+        : `<base href="${backendOrigin}/">${htmlContent}`;
+    }
+
+    logger.info("Setting page content (HTML rendering)", { backendOrigin });
+    await page.setContent(htmlToRender, { waitUntil: "networkidle0", timeout: 30000 });
     logger.info("Page content set, HTML rendered");
+
+    // Mirror the old frontend flow: it toggled the receipt into a dedicated
+    // thermal-print mode before calling html2canvas. Without this class the
+    // DOM keeps preview styling (lighter colors, borders, shadows, scrollable
+    // table body, color logo treatment), so the printed result cannot match.
+    await page.evaluate(`
+      (function() {
+        var receipt = document.querySelector(".receipt-container");
+        if (receipt) {
+          receipt.classList.add("thermal-print");
+        }
+
+        var logoImg = document.querySelector(".receipt-logo img");
+        if (logoImg) {
+          logoImg.style.filter = "grayscale(1) contrast(2.8) brightness(0.28)";
+        }
+
+        var qrSvgs = document.querySelectorAll(".qr-section svg");
+        for (var s = 0; s < qrSvgs.length; s += 1) {
+          qrSvgs[s].style.background = "#ffffff";
+          qrSvgs[s].style.shapeRendering = "crispEdges";
+
+          var nodes = qrSvgs[s].querySelectorAll("path, rect, circle, line, polygon, polyline");
+          for (var i = 0; i < nodes.length; i += 1) {
+            var fill = nodes[i].getAttribute("fill");
+            if (fill && fill.toLowerCase() !== "none" && fill.toLowerCase() !== "#ffffff" && fill.toLowerCase() !== "white") {
+              nodes[i].setAttribute("fill", "#000000");
+            }
+
+            var stroke = nodes[i].getAttribute("stroke");
+            if (stroke && stroke.toLowerCase() !== "none" && stroke.toLowerCase() !== "#ffffff" && stroke.toLowerCase() !== "white") {
+              nodes[i].setAttribute("stroke", "#000000");
+            }
+          }
+        }
+      })();
+    `);
+
+    // Force pure white background so the thermal printer receives high-contrast
+    // black-on-white pixels instead of gray/off-white from the page styling.
+    await page.addStyleTag({
+      content: `
+        html, body {
+          margin: 0 !important;
+          padding: 0 !important;
+          background: #ffffff !important;
+          color: #000000 !important;
+          -webkit-print-color-adjust: exact !important;
+          print-color-adjust: exact !important;
+        }
+
+        body {
+          width: ${paperWidthPx}px !important;
+        }
+
+        .modal,
+        .modal-dialog,
+        .modal-content,
+        .modal-body {
+          margin: 0 !important;
+          padding: 0 !important;
+          max-width: none !important;
+          width: auto !important;
+          border: 0 !important;
+          box-shadow: none !important;
+          background: #ffffff !important;
+        }
+
+        .modal-header,
+        .modal-footer,
+        button {
+          display: none !important;
+        }
+
+        .receipt-container,
+        .receipt-container * {
+          -webkit-print-color-adjust: exact !important;
+          print-color-adjust: exact !important;
+        }
+
+        .receipt-container {
+          width: ${paperWidthPx}px !important;
+          max-width: ${paperWidthPx}px !important;
+          margin: 0 !important;
+          padding: 30px 15px !important;
+          background: #ffffff !important;
+          color: #000000 !important;
+          border: none !important;
+          border-radius: 0 !important;
+          box-shadow: none !important;
+          text-shadow: none !important;
+          font-size: 14px !important;
+          font-weight: 600 !important;
+        }
+
+        .receipt-container .receipt-header,
+        .receipt-container .receipt-discount,
+        .receipt-container .receipt-footer,
+        .receipt-container .payment-breakdown .summary-item {
+          border-color: #000000 !important;
+        }
+
+        .receipt-container .receipt-details {
+          font-weight: 700 !important;
+          font-size: 17px !important;
+        }
+
+        .receipt-container .receipt-subtitle,
+        .receipt-container .social-item,
+        .receipt-container .qr-label,
+        .receipt-container h1,
+        .receipt-container h2,
+        .receipt-container h3,
+        .receipt-container h4,
+        .receipt-container h5,
+        .receipt-container h6,
+        .receipt-container strong,
+        .receipt-container span,
+        .receipt-container div,
+        .receipt-container td,
+        .receipt-container th {
+          color: #000000 !important;
+          opacity: 1 !important;
+        }
+
+        .receipt-container .receipt-logo img {
+          filter: grayscale(1) contrast(2.8) brightness(0.28) !important;
+          image-rendering: -webkit-optimize-contrast !important;
+          image-rendering: crisp-edges !important;
+        }
+
+        .receipt-container .qr-section svg,
+        .receipt-container .qr-section canvas,
+        .receipt-container .qr-section img {
+          background: #ffffff !important;
+          image-rendering: pixelated !important;
+          image-rendering: crisp-edges !important;
+        }
+
+        .receipt-container .table-wrapper {
+          border: none !important;
+          border-radius: 0 !important;
+        }
+
+        .receipt-container .receipt-table {
+          width: 100% !important;
+          table-layout: fixed !important;
+          border-collapse: collapse !important;
+        }
+
+        .receipt-container .receipt-table thead {
+          display: table-header-group !important;
+          width: auto !important;
+          table-layout: fixed !important;
+        }
+
+        .receipt-container .receipt-table thead tr,
+        .receipt-container .receipt-table tbody tr {
+          display: table-row !important;
+        }
+
+        .receipt-container .receipt-table .table-body-scrollable {
+          display: table-row-group !important;
+          max-height: none !important;
+          overflow: visible !important;
+        }
+
+        .receipt-container .receipt-table th {
+          background: #ffffff !important;
+          white-space: nowrap !important;
+          word-break: normal !important;
+          overflow-wrap: normal !important;
+        }
+
+        .receipt-container .receipt-table th,
+        .receipt-container .receipt-table td {
+          font-size: 15px !important;
+          font-weight: 700 !important;
+          border-bottom: 1px solid #000000 !important;
+        }
+
+        .receipt-container .receipt-table td {
+          white-space: normal !important;
+          word-break: break-word !important;
+          overflow-wrap: anywhere !important;
+        }
+
+        .receipt-container .receipt-table th:nth-child(2),
+        .receipt-container .receipt-table td:nth-child(2) {
+          white-space: nowrap !important;
+          word-break: normal !important;
+          overflow-wrap: normal !important;
+        }
+
+        .receipt-container .receipt-total {
+          background: #ffffff !important;
+          padding: 20px !important;
+        }
+
+        .table-body-scrollable::-webkit-scrollbar {
+          display: none !important;
+        }
+      `,
+    });
 
     // --- Step A: Capture the rendered receipt as a PNG (replaces html2canvas) ---
     logger.info("Capturing screenshot");
     const screenshotBuffer = await page.screenshot({
       fullPage: true,
       type: "png",
+      omitBackground: false,
     });
     const base64Screenshot = screenshotBuffer.toString("base64");
     logger.info("Screenshot captured", {
@@ -180,6 +396,8 @@ async function printReceipt(payload) {
 
   printer.timeout = 60000;
   var ctx2d = finalCanvas.getContext("2d");
+  // MODE_GRAY16 matches the original frontend (html2canvas scale:4 + MODE_GRAY16).
+  // At 4x resolution the dithering pattern is fine enough to look sharp on thermal paper.
   printer.addImage(ctx2d, 0, 0, finalCanvas.width, finalCanvas.height, printer.COLOR_1, printer.MODE_GRAY16);
   printer.addFeedLine(2);
   printer.addCut(printer.CUT_FEED);
